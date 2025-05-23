@@ -1,101 +1,38 @@
 import Image from "next/image";
+import Link from "next/link";
+import Menu from "@/components/Menu";
+import Member from "@/components/Member";
 
 export default function Home() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.js
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="flex flex-col min-h-screen">
+      <main className="bg-[#2e2b27] text-[#e6d5b8] leading-[1.7] min-h-screen font-['Special_Elite',_monospace] bg-[length:40px_40px]">
+        <header className="text-center px-[10px] py-[10px] border-b-[3px] border-[#e6d5b8] tracking-[0.15em]">
+          <h1 className="text-[3rem] text-[#f8f1e7] [text-shadow:2px_2px_5px_#000000aa]">轉站人生</h1>
+          <p className="mb-0 text-[1.2rem] text-[#d6c9b1] italic">你的人生可能會誤點，火車也會；不是每段感情都準時，火車也是</p>
+        </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
+        <Menu />
+
+        <div className="max-w-xl mx-auto bg-[#423d35] p-10 rounded-lg shadow-lg border border-[#c4a35a] mb-20">
+          <h2 className="text-[#c4a35a] text-2xl mb-6 border-l-8 border-[#c4a35a] pl-3 tracking-wide">
+            溫提馨醒
+          </h2>
+          <p className="mb-7 text-lg tracking-wide">
+            停、看、聽，平交道安全三步驟。<br />
+            請勿闖越平交道，生命不容冒險。<br />
+            慢一秒，換一生。快一秒，沒人生。<br />
+            請勿在平交道上打瞌睡，火車來了可就來不及了！<br />
+            你走得快，不如火車撞得快。
+          </p>
+          <a href="https://www.railway.gov.tw/tra-tip-web/adr/customized_info?I=BOdk82vOPKw4nr9W8kfiZqgN%2Bif9LX%2B2JNc1p3BG4HGpGf0rzDC8bMRG3GqlEN4q5Sm8csVG1EI%3D&site_preference=normal" 
+            target="_blank" rel="noopener noreferrer"
+            className="inline-block bg-[#c4a35a] text-[#2e2b27] font-extrabold py-4 px-9 rounded-full shadow-md shadow-[#c4a35aaa] hover:bg-[#9a7d3a] hover:text-[#f8f1e7] hover:shadow-[#9a7d3aaa] transition duration-300 select-none text-lg tracking-wide no-underline">
+              看更多
           </a>
         </div>
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      <Member />
     </div>
   );
 }
