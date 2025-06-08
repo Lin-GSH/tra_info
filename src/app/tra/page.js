@@ -14,27 +14,39 @@ const cities = [
 ];
 
 export default function Home() {
+  // 新增查詢模式狀態，預設為「起訖站查詢」
+  const [queryMode, setQueryMode] = useState('od'); // od, trainNo, trainLive
+
   const [stations, setStations] = useState([]);
   const [filteredStationsStart, setFilteredStationsStart] = useState([]);
   const [filteredStationsEnd, setFilteredStationsEnd] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // 起訖站查詢相關
   const [selectedStartCity, setSelectedStartCity] = useState('');
   const [selectedStartStation, setSelectedStartStation] = useState('');
   const [selectedEndCity, setSelectedEndCity] = useState('');
   const [selectedEndStation, setSelectedEndStation] = useState('');
 
-  const [tripInfo, setTripInfo] = useState([]);
-  const [fareInfo, setFareInfo] = useState([]);
-  const [delayInfo, setDelayInfo] = useState([]); // 新增誤點狀態資料
-
-  const [startHour, setStartHour] = useState("0");
-  const [endHour, setEndHour] = useState("23");
-
+  // 共用日期
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
 
-  // 取得 AccessToken
+  // 時段 (只對起訖站查詢有效)
+  const [startHour, setStartHour] = useState("0");
+  const [endHour, setEndHour] = useState("23");
+
+  // 車次查詢 & 單一列車動態 查詢車次號碼
+  const [trainNo, setTrainNo] = useState('');
+
+  // 查詢結果資料
+  const [tripInfo, setTripInfo] = useState([]);
+  const [fareInfo, setFareInfo] = useState([]);
+  const [delayInfo, setDelayInfo] = useState([]);
+  const [stops, setStops] = useState([]); // 單一列車動態的停靠站資料
+  const [error, setError] = useState(null);
+
+  // === 以下為原本的取得 AccessToken 與 API fetch 函數 ===
   const getAccessToken = async () => {
     const params = new URLSearchParams();
     params.append('grant_type', 'client_credentials');
@@ -53,12 +65,11 @@ export default function Home() {
     try {
       const token = await getAccessToken();
       const response = await axios.get(
-        'https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/Station',
+        `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/Station`,
         {
           headers: { Authorization: `Bearer ${token}` },
-          params: { $format: 'JSON' },
-        }
-      );
+          params: { $format: 'JSON' }
+        });
       setStations(response.data);
     } catch (err) {
       console.error(err);
@@ -67,20 +78,18 @@ export default function Home() {
     }
   };
 
-  // 取得列車時刻
-  const fetchTripInfo = async () => {
+  // 起訖站查詢：列車時刻
+  const fetchTripInfoOD = async () => {
     if (!selectedStartStation || !selectedEndStation || !selectedDate) return;
 
     try {
       const token = await getAccessToken();
-
       const url = `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/OD/${selectedStartStation}/to/${selectedEndStation}/${selectedDate}`;
 
       const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
         params: { $format: 'JSON' }
       });
-
       setTripInfo(response.data);
     } catch (err) {
       console.error("無法取得列車時刻：", err);
@@ -88,8 +97,8 @@ export default function Home() {
     }
   };
 
-  // 取得票價資料
-  const fetchFareInfo = async () => {
+  // 起訖站查詢：票價資料
+  const fetchFareInfoOD = async () => {
     if (!selectedStartStation || !selectedEndStation) return;
 
     try {
@@ -112,14 +121,12 @@ export default function Home() {
     }
   };
 
-  // 取得誤點資訊
-  const fetchDelayInfo = async () => {
+  // 起訖站查詢：誤點資料
+  const fetchDelayInfoOD = async () => {
     if (!selectedDate) return;
 
     try {
       const token = await getAccessToken();
-      // 這個 API 可以查詢特定日期誤點狀態
-      // 會回傳該日所有列車的誤點資訊
       const url = `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/LiveTrainDelay`;
 
       const response = await axios.get(url, {
@@ -132,6 +139,50 @@ export default function Home() {
       console.error("誤點資料取得失敗：", err);
       setDelayInfo([]);
     }
+  };
+
+  // 起始城市改變過濾車站
+  const handleStartCityChange = (e) => {
+    const city = e.target.value;
+    setSelectedStartCity(city);
+    setSelectedStartStation('');
+    const filtered = stations.filter(s => s.LocationCity === city);
+    setFilteredStationsStart(filtered);
+  };
+
+  // 終點城市改變過濾車站
+  const handleEndCityChange = (e) => {
+    const city = e.target.value;
+    setSelectedEndCity(city);
+    setSelectedEndStation('');
+    const filtered = stations.filter(s => s.LocationCity === city);
+    setFilteredStationsEnd(filtered);
+  };
+
+  // 起訖站切換過濾
+  const handleStartStationChange = (e) => setSelectedStartStation(e.target.value);
+  const handleEndStationChange = (e) => setSelectedEndStation(e.target.value);
+
+  // 車次輸入
+  const handleTrainNoChange = (e) => setTrainNo(e.target.value);
+
+  // 日期改變
+  const handleDateChange = (e) => setSelectedDate(e.target.value);
+
+  // 時間區間改變（起訖站專用）
+  const handleStartHourChange = (e) => setStartHour(e.target.value);
+  const handleEndHourChange = (e) => setEndHour(e.target.value);
+
+  // 篩選班次依時間區間（只對起訖站查詢）
+  const filterTripsByTime = (trips, startH, endH) => {
+    const startHourNum = Number(startH);
+    const endHourNum = Number(endH);
+    return trips.filter(trip => {
+      const depTime = trip.OriginStopTime?.DepartureTime || '';
+      if (!depTime) return false;
+      const depHour = Number(depTime.split(':')[0]);
+      return depHour >= startHourNum && depHour <= endHourNum;
+    });
   };
 
   // 根據車種名稱找成人票票價
@@ -153,18 +204,6 @@ export default function Home() {
     return fareItem ? `${fareItem.Price} 元` : '-';
   };
 
-  // 篩選班次依時間區間（整點）
-  const filterTripsByTime = (trips, startH, endH) => {
-    const startHourNum = Number(startH);
-    const endHourNum = Number(endH);
-    return trips.filter(trip => {
-      const depTime = trip.OriginStopTime?.DepartureTime || '';
-      if (!depTime) return false;
-      const depHour = Number(depTime.split(':')[0]);
-      return depHour >= startHourNum && depHour <= endHourNum;
-    });
-  };
-
   // 根據車次找誤點狀態
   const getDelayByTrainNo = (trainNo) => {
     if (!trainNo || !delayInfo || delayInfo.length === 0) return '-';
@@ -178,57 +217,60 @@ export default function Home() {
     return '準時';
   };
 
+const fetchTripInfoTrainNo = async (trainNo) => {
+  setLoading(true);
+  setError(null);
+  try {
+    const token = await getAccessToken();
+    const url = `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/GeneralTimetable/TrainNo/${trainNo}`;
+
+    const response = await axios.get(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { $format: 'JSON' },
+    });
+
+    if (response.data.length > 0) {
+      const stops = response.data[0].GeneralTimetable.StopTimes || [];
+      setStops(stops);
+    } else {
+      setStops([]);
+      setError('查無該車次資料');
+    }
+  } catch (err) {
+    console.error("查詢失敗：", err);
+    setError('查詢失敗，請稍後再試');
+    setStops([]);
+  } finally {
+    setLoading(false);
+  }
+};
+
+  // 監聽 fetch，依 queryMode 呼叫不同函數
   useEffect(() => {
     fetchStation();
   }, []);
 
   useEffect(() => {
-    if (selectedStartStation && selectedEndStation && selectedDate) {
-      fetchTripInfo();
-      fetchFareInfo();
-      fetchDelayInfo();
-    } else {
-      setTripInfo([]);
-      setFareInfo([]);
-      setDelayInfo([]);
+    if (queryMode === 'od') {
+      if (selectedStartStation && selectedEndStation && selectedDate) {
+        fetchTripInfoOD();
+        fetchFareInfoOD();
+        fetchDelayInfoOD();
+      } else {
+        setTripInfo([]);
+        setFareInfo([]);
+        setDelayInfo([]);
+      }
+    } else if (queryMode === 'trainNo') {
+      if (trainNo && selectedDate) {
+      } else {
+      }
+    } else if (queryMode === 'trainLive') {
+      if (trainNo) {
+      } else {
+      }
     }
-  }, [selectedStartStation, selectedEndStation, selectedDate]);
-
-  const handleStartCityChange = (e) => {
-    const city = e.target.value;
-    setSelectedStartCity(city);
-    setSelectedStartStation('');
-    const filtered = stations.filter(s => s.LocationCity === city);
-    setFilteredStationsStart(filtered);
-  };
-
-  const handleStartStationChange = (e) => {
-    setSelectedStartStation(e.target.value);
-  };
-
-  const handleEndCityChange = (e) => {
-    const city = e.target.value;
-    setSelectedEndCity(city);
-    setSelectedEndStation('');
-    const filtered = stations.filter(s => s.LocationCity === city);
-    setFilteredStationsEnd(filtered);
-  };
-
-  const handleEndStationChange = (e) => {
-    setSelectedEndStation(e.target.value);
-  };
-
-  const handleDateChange = (e) => {
-    setSelectedDate(e.target.value);
-  };
-
-  const handleStartHourChange = (e) => {
-    setStartHour(e.target.value);
-  };
-
-  const handleEndHourChange = (e) => {
-    setEndHour(e.target.value);
-  };
+  }, [queryMode, selectedStartStation, selectedEndStation, selectedDate, trainNo]);
 
   const displayedTrips = filterTripsByTime(tripInfo, startHour, endHour);
 
@@ -240,145 +282,228 @@ export default function Home() {
       </header>
 
       <Menu />
-
       {loading ? (
-        <p className="text-white p-4">資料載入中...</p>
+        <p className="text-gray-900 p-4">資料載入中...</p>
       ) : (
-        <div className="max-w-4xl mx-auto mb-8 space-y-6">
-
-          {/* 日期選擇 */}
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            min={today}
-            className="flex-1 border rounded px-3 py-2 text-gray-700"
-          />
-
-          {/* 起點城市與車站 */}
-          <div className="flex space-x-6">
-            <div className="w-1/2">
-              <label className="block mb-1 text-white font-medium" htmlFor="start-city">起點城市：</label>
-              <select
-                id="start-city"
-                value={selectedStartCity}
-                onChange={handleStartCityChange}
-                className="w-full border rounded px-3 py-2 text-gray-700"
-              >
-                <option value="">請選擇</option>
-                {cities.map((city, idx) => (
-                  <option key={idx} value={city}>{city}</option>
-                ))}
-              </select>
-
-              {selectedStartCity && (
-                <>
-                  <label className="block mt-4 mb-1 text-white font-medium" htmlFor="start-station">起點車站：</label>
-                  <select
-                    id="start-station"
-                    value={selectedStartStation}
-                    onChange={handleStartStationChange}
-                    className="w-full border rounded px-3 py-2 text-gray-700"
+              <div className="container mx-auto p-4 text-gray-900">
+              {/* 查詢模式切換 */}
+                <div className="mb-4 flex space-x-4">
+                  <button
+                    className={`px-4 py-2 rounded ${
+                      queryMode === 'od' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-900'
+                    }`}
+                    onClick={() => setQueryMode('od')}
                   >
-                    <option value="">請選擇</option>
-                    {filteredStationsStart.map((station) => (
-                      <option key={station.StationID} value={station.StationID}>
-                        {station.StationName.Zh_tw}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-            </div>
-
-            {/* 終點城市與車站 */}
-            <div className="w-1/2">
-              <label className="block mb-1 text-white font-medium" htmlFor="end-city">終點城市：</label>
-              <select
-                id="end-city"
-                value={selectedEndCity}
-                onChange={handleEndCityChange}
-                className="w-full border rounded px-3 py-2 text-gray-700"
-              >
-                <option value="">請選擇</option>
-                {cities.map((city, idx) => (
-                  <option key={idx} value={city}>{city}</option>
-                ))}
-              </select>
-
-              {selectedEndCity && (
-                <>
-                  <label className="block mt-4 mb-1 text-white font-medium" htmlFor="end-station">終點車站：</label>
-                  <select
-                    id="end-station"
-                    value={selectedEndStation}
-                    onChange={handleEndStationChange}
-                    className="w-full border rounded px-3 py-2 text-gray-700"
+                    起訖站查詢
+                  </button>
+                  <button
+                    className={`px-4 py-2 rounded ${
+                      queryMode === 'trainNo' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-900'
+                    }`}
+                    onClick={() => setQueryMode('trainNo')}
                   >
-                    <option value="">請選擇</option>
-                    {filteredStationsEnd.map((station) => (
-                      <option key={station.StationID} value={station.StationID}>
-                        {station.StationName.Zh_tw}
-                      </option>
-                    ))}
-                  </select>
-                </>
+                    車次查詢
+                  </button>
+                </div>
+
+              {/* 不同查詢模式的表單 */}
+              {queryMode === 'od' && (
+                <section className="mb-6 border p-4 rounded shadow">
+                  <h2 className="text-xl text-[#c4a35a] font-bold mb-4">起訖站查詢</h2>
+                  <div className="max-w-4xl mx-auto mb-8 space-y-6">
+
+                    {/* 日期選擇 */}
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      min={today}
+                      className="flex-1 border rounded px-3 py-2 text-gray-700"
+                    />
+
+                    {/* 起點城市與車站 */}
+                    <div className="flex space-x-6">
+                      <div className="w-1/2">
+                        <label className="block mb-1 text-white font-medium" htmlFor="start-city">起點城市：</label>
+                        <select
+                          id="start-city"
+                          value={selectedStartCity}
+                          onChange={handleStartCityChange}
+                          className="w-full border rounded px-3 py-2 text-gray-700"
+                        >
+                          <option value="">請選擇</option>
+                          {cities.map((city, idx) => (
+                            <option key={idx} value={city}>{city}</option>
+                          ))}
+                        </select>
+
+                        {selectedStartCity && (
+                          <div>
+                            <label className="block mt-4 mb-1 text-white font-medium" htmlFor="start-station">起點車站：</label>
+                            <select
+                              id="start-station"
+                              value={selectedStartStation}
+                              onChange={handleStartStationChange}
+                              className="w-full border rounded px-3 py-2 text-gray-700"
+                            >
+                              <option value="">請選擇</option>
+                              {filteredStationsStart.map((station) => (
+                                <option key={station.StationID} value={station.StationID}>
+                                  {station.StationName.Zh_tw}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 終點城市與車站 */}
+                      <div className="w-1/2">
+                        <label className="block mb-1 text-white font-medium" htmlFor="end-city">終點城市：</label>
+                        <select
+                          id="end-city"
+                          value={selectedEndCity}
+                          onChange={handleEndCityChange}
+                          className="w-full border rounded px-3 py-2 text-gray-700"
+                        >
+                          <option value="">請選擇</option>
+                          {cities.map((city, idx) => (
+                            <option key={idx} value={city}>{city}</option>
+                          ))}
+                        </select>
+
+                        {selectedEndCity && (
+                          <div>
+                            <label className="block mt-4 mb-1 text-white font-medium" htmlFor="end-station">終點車站：</label>
+                            <select
+                              id="end-station"
+                              value={selectedEndStation}
+                              onChange={handleEndStationChange}
+                              className="w-full border rounded px-3 py-2 text-gray-700"
+                            >
+                              <option value="">請選擇</option>
+                              {filteredStationsEnd.map((station) => (
+                                <option key={station.StationID} value={station.StationID}>
+                                  {station.StationName.Zh_tw}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 時間區間篩選 */}
+                    <div className="flex space-x-4 mt-4 items-center">
+                      <label className="text-white font-medium">起始時段</label>
+                      <select value={startHour} onChange={handleStartHourChange} className="border rounded px-2 py-1 text-gray-700">
+                        {[...Array(24).keys()].map(h => (
+                          <option key={h} value={h}>{h}點</option>
+                        ))}
+                      </select>
+
+                      <label className="text-white font-medium">結束時段</label>
+                      <select value={endHour} onChange={handleEndHourChange} className="border rounded px-2 py-1 text-gray-700">
+                        {[...Array(24).keys()].map(h => (
+                          <option key={h} value={h}>{h}點</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* 列車時刻表 */}
+                    <table className="table-auto w-full border-collapse border border-gray-400 mt-6 text-sm">
+                      <thead>
+                        <tr className="bg-[#4a423f] text-white">
+                          <th className="border border-gray-300 px-2 py-1">車次</th>
+                          <th className="border border-gray-300 px-2 py-1">車種</th>
+                          <th className="border border-gray-300 px-2 py-1">出發時間</th>
+                          <th className="border border-gray-300 px-2 py-1">到達時間</th>
+                          <th className="border border-gray-300 px-2 py-1">成人票價</th>
+                          <th className="border border-gray-300 px-2 py-1">誤點狀態</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayedTrips.length === 0 ? (
+                          <tr>
+                            <td colSpan="8" className="text-center text-gray-300 py-4">查無班次資料</td>
+                          </tr>
+                        ) : (
+                          displayedTrips.map((trip) => (
+                            <tr key={trip.DailyTrainInfo?.TrainNo} className="odd:bg-[#3a3631] even:bg-[#3e3b37]">
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{trip.DailyTrainInfo?.TrainNo || '-'}</td>
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{trip.DailyTrainInfo?.TrainTypeName?.Zh_tw || '-'}</td>
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{trip.OriginStopTime?.DepartureTime || '-'}</td>
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{trip.DestinationStopTime?.ArrivalTime || '-'}</td>
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{getFareByTrainType(trip.DailyTrainInfo?.TrainTypeName?.Zh_tw, fareInfo)}</td>
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{getDelayByTrainNo(trip.DailyTrainInfo?.TrainNo)}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
               )}
+
+              {queryMode === 'trainNo' && (
+                <section className="mb-6 border p-4 rounded shadow">
+                  <h2 className="text-xl text-[#c4a35a] font-bold mb-4">車次查詢</h2>
+                  <div className="max-w-4xl mx-auto mb-8 space-y-6">
+
+                    {/* 輸入車次 */}
+                    <div className="flex space-x-4 items-center">
+                      <input
+                        type="text"
+                        placeholder="輸入車次號碼"
+                        value={trainNo}
+                        onChange={(e) => setTrainNo(e.target.value)}
+                        className="flex-1 border rounded px-3 py-2 text-gray-800"
+                      />
+                      <button
+                        onClick={() => fetchTripInfoTrainNo(trainNo)}
+                        disabled={loading}
+                        className="px-4 py-2 bg-blue-600 text-white rounded"
+                      >
+                        {loading ? '查詢中...' : '查詢'}
+                      </button>
+                    </div>
+
+                    {/* 錯誤訊息 */}
+                    {error && (
+                      <p className="text-red-400">{error}</p>
+                    )}
+
+                    {/* 停靠站資料表格 */}
+                    {stops.length > 0 && (
+                      <table className="table-auto w-full border-collapse border border-gray-400 mt-4 text-sm">
+                        <thead>
+                          <tr className="bg-[#4a423f] text-white">
+                            <th className="border border-gray-300 px-2 py-1">停靠站</th>
+                            <th className="border border-gray-300 px-2 py-1">到站時間</th>
+                            <th className="border border-gray-300 px-2 py-1">開車時間</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stops.map((stop, i) => (
+                            <tr key={i} className="odd:bg-[#3a3631] even:bg-[#3e3b37]">
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{stop.StationName?.Zh_tw || '-'}</td>
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{stop.ArrivalTime || '—'}</td>
+                              <td className="border border-gray-300 px-2 py-1 text-white text-center">{stop.DepartureTime || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              
             </div>
-          </div>
+          )}
 
-          {/* 時間區間篩選 */}
-          <div className="flex space-x-4 mt-4 items-center">
-            <label className="text-white font-medium">起始時段</label>
-            <select value={startHour} onChange={handleStartHourChange} className="border rounded px-2 py-1 text-gray-700">
-              {[...Array(24).keys()].map(h => (
-                <option key={h} value={h}>{h}點</option>
-              ))}
-            </select>
 
-            <label className="text-white font-medium">結束時段</label>
-            <select value={endHour} onChange={handleEndHourChange} className="border rounded px-2 py-1 text-gray-700">
-              {[...Array(24).keys()].map(h => (
-                <option key={h} value={h}>{h}點</option>
-              ))}
-            </select>
-          </div>
 
-          {/* 列車時刻表 */}
-          <table className="table-auto w-full border-collapse border border-gray-400 mt-6 text-sm">
-            <thead>
-              <tr className="bg-[#4a423f] text-white">
-                <th className="border border-gray-300 px-2 py-1">車次</th>
-                <th className="border border-gray-300 px-2 py-1">車種</th>
-                <th className="border border-gray-300 px-2 py-1">出發時間</th>
-                <th className="border border-gray-300 px-2 py-1">到達時間</th>
-                <th className="border border-gray-300 px-2 py-1">成人票價</th>
-                <th className="border border-gray-300 px-2 py-1">誤點狀態</th> {/* 新增欄位 */}
-              </tr>
-            </thead>
-            <tbody>
-              {displayedTrips.length === 0 ? (
-                <tr>
-                  <td colSpan="8" className="text-center text-gray-300 py-4">查無班次資料</td>
-                </tr>
-              ) : (
-                displayedTrips.map((trip) => (
-                  <tr key={trip.DailyTrainInfo?.TrainNo} className="odd:bg-[#3a3631] even:bg-[#3e3b37]">
-                    <td className="border border-gray-300 px-2 py-1 text-center">{trip.DailyTrainInfo?.TrainNo || '-'}</td>
-                    <td className="border border-gray-300 px-2 py-1 text-center">{trip.DailyTrainInfo?.TrainTypeName?.Zh_tw || '-'}</td>
-                    <td className="border border-gray-300 px-2 py-1 text-center">{trip.OriginStopTime?.DepartureTime || '-'}</td>
-                    <td className="border border-gray-300 px-2 py-1 text-center">{trip.DestinationStopTime?.ArrivalTime || '-'}</td>
-                    <td className="border border-gray-300 px-2 py-1 text-center">{getFareByTrainType(trip.DailyTrainInfo?.TrainTypeName?.Zh_tw, fareInfo)}</td>
-                    <td className="border border-gray-300 px-2 py-1 text-center">{getDelayByTrainNo(trip.DailyTrainInfo?.TrainNo)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <Member />
-    </div>
+        <Member /></div>
   );
 }
