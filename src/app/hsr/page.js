@@ -9,6 +9,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [selectedStartStation, setSelectedStartStation] = useState('');
   const [selectedEndStation, setSelectedEndStation] = useState('');
+  const [fare, setFare] = useState(null);
   
   const [startHour, setStartHour] = useState(0);
   const [endHour, setEndHour] = useState(24);
@@ -73,7 +74,35 @@ export default function Home() {
     }
   };
 
+  const fetchFare = async () => {
+    if (!selectedStartStation || !selectedEndStation) return;
+
+    try {
+      const token = await getAccessToken();
+      const response = await axios.get(
+        `https://tdx.transportdata.tw/api/basic/v2/Rail/THSR/ODFare/${selectedStartStation}/to/${selectedEndStation}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { $format: 'JSON' }
+        }
+      );
+
+      const fareData = response.data?.[0]?.Fares.find(
+        f => f.FareClass === 1 && f.CabinClass === 1
+      );
+
+      if (fareData) {
+        setFare(fareData.Price);
+      } else {
+        setFare(null);
+      }
+    } catch (err) {
+      console.error('票價查詢失敗:', err);
+    }
+  };
+
   useEffect(() => {
+    fetchFare();
     fetchTrips();
   }, [selectedStartStation, selectedEndStation, selectedDate]);
 
@@ -146,6 +175,14 @@ export default function Home() {
                     </select>
                   </div>
                 </div>
+
+                {/* 票價顯示 */}
+                {fare !== null && (
+                  <div className="mt-4 text-lg font-semibold text-[#c4a35a]">
+                    標準車廂對號座票價：
+                    <span className="text-white ml-2">{fare.toLocaleString()} 元</span>
+                  </div>
+                )}
 
                 {/* 時段選擇 */}
                 <div className="flex space-x-4 items-center mt-4">
