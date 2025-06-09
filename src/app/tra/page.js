@@ -35,6 +35,9 @@ export default function Home() {
   // 時段 (只對起訖站查詢有效)
   const [startHour, setStartHour] = useState("0");
   const [endHour, setEndHour] = useState("23");
+  
+  // 車種過濾
+  const [trainTypeFilter, setTrainTypeFilter] = useState('all');
 
   // 車次查詢 & 單一列車動態 查詢車次號碼
   const [trainNo, setTrainNo] = useState('');
@@ -44,6 +47,7 @@ export default function Home() {
   const [fareInfo, setFareInfo] = useState([]);
   const [delayInfo, setDelayInfo] = useState([]);
   const [stops, setStops] = useState([]); // 單一列車動態的停靠站資料
+  const [trainType, setTrainType] = useState(''); // 儲存車種資訊
   const [error, setError] = useState(null);
 
   // === 以下為原本的取得 AccessToken 與 API fetch 函數 ===
@@ -167,15 +171,24 @@ export default function Home() {
   const handleStartHourChange = (e) => setStartHour(e.target.value);
   const handleEndHourChange = (e) => setEndHour(e.target.value);
 
-  // 篩選班次依時間區間（只對起訖站查詢）
-  const filterTripsByTime = (trips, startH, endH) => {
+  // 篩選班次依時間區間和車種（只對起訖站查詢）
+  const filterTripsByTimeAndType = (trips, startH, endH, trainType) => {
     const startHourNum = Number(startH);
     const endHourNum = Number(endH);
     return trips.filter(trip => {
+      // 時間過濾
       const depTime = trip.OriginStopTime?.DepartureTime || '';
       if (!depTime) return false;
       const depHour = Number(depTime.split(':')[0]);
-      return depHour >= startHourNum && depHour <= endHourNum;
+      const timeMatch = depHour >= startHourNum && depHour <= endHourNum;
+
+      // 車種過濾
+      const trainTypeName = trip.DailyTrainInfo?.TrainTypeName?.Zh_tw || '';
+      const typeMatch = trainType === 'all' || 
+                       (trainType === 'express' && (trainTypeName.includes('自強') || trainTypeName.includes('莒光'))) ||
+                       (trainType === 'local' && trainTypeName.includes('區間'));
+
+      return timeMatch && typeMatch;
     });
   };
 
@@ -214,6 +227,7 @@ export default function Home() {
   const fetchTripInfoTrainNo = async (trainNo) => {
     setLoading(true);
     setError(null);
+    setTrainType(''); // 重置車種資訊
     try {
       const token = await getAccessToken();
       const url = `https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/GeneralTimetable/TrainNo/${trainNo}`;
@@ -225,15 +239,19 @@ export default function Home() {
 
       if (response.data.length > 0) {
         const stops = response.data[0].GeneralTimetable.StopTimes || [];
+        const type = response.data[0].GeneralTimetable.GeneralTrainInfo?.TrainTypeName?.Zh_tw || '未知';
         setStops(stops);
+        setTrainType(type);
       } else {
         setStops([]);
+        setTrainType('');
         setError('查無該車次資料');
       }
     } catch (err) {
       console.error("查詢失敗：", err);
       setError('查詢失敗，請稍後再試');
       setStops([]);
+      setTrainType('');
     } finally {
       setLoading(false);
     }
@@ -266,7 +284,7 @@ export default function Home() {
     }
   }, [queryMode, selectedStartStation, selectedEndStation, selectedDate, trainNo]);
 
-  const displayedTrips = filterTripsByTime(tripInfo, startHour, endHour);
+  const displayedTrips = filterTripsByTimeAndType(tripInfo, startHour, endHour, trainTypeFilter);
 
   return (
     <div className="flex flex-col min-h-screen bg-[#2e2b27] text-[#e6d5b8] font-['Special_Elite',_monospace] leading-[1.7] p-4">
@@ -402,6 +420,17 @@ export default function Home() {
                       <option key={h} value={h}>{h}點</option>
                     ))}
                   </select>
+
+                  <label className="text-white font-medium">車種篩選</label>
+                  <select 
+                    value={trainTypeFilter} 
+                    onChange={(e) => setTrainTypeFilter(e.target.value)} 
+                    className="border rounded px-2 py-1 text-gray-700"
+                  >
+                    <option value="all">全部車種</option>
+                    <option value="express">自強/莒光號</option>
+                    <option value="local">區間車</option>
+                  </select>
                 </div>
 
                 {/* 列車時刻表 */}
@@ -468,6 +497,13 @@ export default function Home() {
                 )}
 
                 {/* 停靠站資料表格 */}
+                {/* 顯示車種資訊 */}
+                {trainType && (
+                  <div className="mt-4 mb-2 text-white">
+                    <span className="font-bold">車種：</span> {trainType}
+                  </div>
+                )}
+
                 {stops.length > 0 && (
                   <table className="table-auto w-full border-collapse border border-gray-400 mt-4 text-sm">
                     <thead>
