@@ -3,6 +3,7 @@ import Menu from "@/components/Menu";
 import Member from "@/components/Member";
 import { useEffect, useState } from "react";
 import axios from 'axios';
+import React from "react";
 
 const cities = [
   "基隆市", "新北市", "臺北市",
@@ -15,7 +16,7 @@ const cities = [
 
 export default function Home() {
   // 新增查詢模式狀態，預設為「起訖站查詢」
-  const [queryMode, setQueryMode] = useState('od'); // od, trainNo, trainLive
+  const [queryMode, setQueryMode] = useState('od'); // od, trainNo, transfer
 
   const [stations, setStations] = useState([]);
   const [filteredStationsStart, setFilteredStationsStart] = useState([]);
@@ -42,6 +43,15 @@ export default function Home() {
   // 車次查詢 & 單一列車動態 查詢車次號碼
   const [trainNo, setTrainNo] = useState('');
 
+  // 轉乘查詢相關
+  const [transferStartCity, setTransferStartCity] = useState('');
+  const [transferStartStation, setTransferStartStation] = useState('');
+  const [transferEndCity, setTransferEndCity] = useState('');
+  const [transferEndStation, setTransferEndStation] = useState('');
+  const [transferResults, setTransferResults] = useState([]);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferError, setTransferError] = useState(null);
+  
   // 查詢結果資料
   const [tripInfo, setTripInfo] = useState([]);
   const [fareInfo, setFareInfo] = useState([]);
@@ -54,8 +64,8 @@ export default function Home() {
   const getAccessToken = async () => {
     const params = new URLSearchParams();
     params.append('grant_type', 'client_credentials');
-    params.append('client_id', 'B11217015-550bb110-2c3a-40e6');
-    params.append('client_secret', 'cfc8aeaf-4bed-477f-9446-f5cee7176bdf');
+    params.append('client_id', 'b11217022-5a55899f-321d-4949');//'B11217015-550bb110-2c3a-40e6'
+    params.append('client_secret', 'fccbdb54-96d8-41a0-8ae3-d4f0128d8826');//'cfc8aeaf-4bed-477f-9446-f5cee7176bdf'
 
     const response = await axios.post(
       'https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token',
@@ -224,6 +234,251 @@ export default function Home() {
     return '準時';
   };
 
+  const findTransferRoutes = async () => {
+    if (!transferStartStation || !transferEndStation || !selectedDate) return;
+
+    setTransferLoading(true);
+    setTransferError(null);
+    setTransferResults([]);
+
+    try {
+      const token = await getAccessToken();
+
+      const startStation = stations.find(s => s.StationID === transferStartStation);
+      const endStation = stations.find(s => s.StationID === transferEndStation);
+      console.log("起點站:", startStation);
+      console.log("終點站:", endStation);
+
+      const filteredStations = stations.filter(station => {
+      
+      const isMainStation = station.StationClass === "1" || station.StationClass === "0" ;
+        if (!isMainStation) return false;
+
+        const stationKm = parseFloat(station.StationID) || 0;
+        const startKm = parseFloat(startStation?.StationID) || 0;
+        const endKm = parseFloat(endStation?.StationID) || 0;
+
+        const isBetween = stationKm >= Math.min(startKm, endKm) &&
+                          stationKm <= Math.max(startKm, endKm);
+
+        return isBetween;
+      });
+
+      let minStation = null;
+      let maxStation = null;
+
+      for (const station of filteredStations) {
+        const km = parseFloat(station.StationID);
+        if (!minStation || km < parseFloat(minStation.StationID)) {
+          minStation = station;
+        }
+        if (!maxStation || km > parseFloat(maxStation.StationID)) {
+          maxStation = station;
+        }
+      }
+
+      const potentialTransferStations = [];
+      if (minStation) potentialTransferStations.push(minStation);
+      if (maxStation && maxStation !== minStation) potentialTransferStations.push(maxStation);
+      console.log("潛在轉乘站:", potentialTransferStations);
+
+      const transferFirstID = (startStation.StationID < endStation.StationID) ? potentialTransferStations[0].StationID : potentialTransferStations[1].StationID;
+      const transferSecondID = (startStation.StationID < endStation.StationID) ? potentialTransferStations[1].StationID : potentialTransferStations[0].StationID;
+
+      const [firstLegRes, secondLegRes, thirdLegRes, straightRes] = await Promise.all([
+        axios.get(`https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/OD/${transferStartStation}/to/${transferFirstID}/${selectedDate}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { $format: 'JSON' }
+        }),
+        axios.get(`https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/OD/${transferFirstID}/to/${transferSecondID}/${selectedDate}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { $format: 'JSON' }
+        }),
+        axios.get(`https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/OD/${transferSecondID}/to/${transferEndStation}/${selectedDate}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { $format: 'JSON' }
+        }),
+        axios.get(`https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/OD/${transferStartStation}/to/${transferEndStation}/${selectedDate}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { $format: 'JSON' }
+        })
+      ]);
+      console.log("第一段路線:", firstLegRes.data);
+      console.log("第二段路線:", secondLegRes.data);
+      console.log("第三段路線:", thirdLegRes.data);
+      console.log("直達路線:", straightRes.data);
+
+      const firstLegs = firstLegRes.data.map(item => ({ ...item, leg: 1 }));
+      const secondLegs = secondLegRes.data.map(item => ({ ...item, leg: 2 }));
+      const thirdLegs = thirdLegRes.data.map(item => ({ ...item, leg: 3 }));
+      const straightLegs = straightRes.data.map(item => ({ ...item, leg: 0 }));
+
+      function toMinutes(timeStr) {
+        const [h, m] = timeStr.split(':').map(Number);
+        return h * 60 + m;
+      }
+
+      function getTimeDiff(startTime, endTime) {
+        let start = toMinutes(startTime);
+        let end = toMinutes(endTime);
+
+        // 如果 end < start，表示跨日了，+ 24 小時
+        if (end < start) {
+          return (24 * 60 - start) + end; // 跨日情況
+        }
+
+        return end - start;
+      }
+
+      
+
+      const validRoutes = [];
+      const shortestPerDeparture = new Map();
+
+      if (transferFirstID === startStation.StationID && transferSecondID === endStation.StationID) {
+        straightLegs.forEach(straight => {
+          const totalTime = getTimeDiff(straight?.OriginStopTime?.DepartureTime, straight?.DestinationStopTime?.ArrivalTime);
+          validRoutes.push({ straight, totalTime}); // 只有第一段
+        });
+
+        for (const route of validRoutes) {
+          const depTime = route.straight?.OriginStopTime?.DepartureTime;
+
+          if (
+            !shortestPerDeparture.has(depTime) ||
+            route.totalTime < shortestPerDeparture.get(depTime).totalTime
+          ) {
+            shortestPerDeparture.set(depTime, route);
+          }
+        }
+      }
+      else {
+        let routeSelection = 0;
+        // 2-3 段轉乘
+        if (transferFirstID === startStation.StationID && transferSecondID !== endStation.StationID) {
+          routeSelection = 2;
+          secondLegs.forEach(second => {
+            const secondArr = second.DestinationStopTime.ArrivalTime;
+
+            thirdLegs.forEach(Third => {
+              const thirdDep = Third.OriginStopTime.DepartureTime;
+              if (second.DestinationStopTime.ArrivalTime > Third.OriginStopTime.DepartureTime) return;
+              if (getTimeDiff(secondArr, thirdDep) < 5) return;
+
+              const totalTime = getTimeDiff(second.OriginStopTime.DepartureTime, Third.DestinationStopTime.ArrivalTime);
+
+              validRoutes.push({
+                second,
+                Third,
+                totalTime
+              });
+            });
+          });
+        }
+        // 1-2 段轉乘
+        else if (transferFirstID !== startStation.StationID && transferSecondID === endStation.StationID) {
+          routeSelection = 1;
+          firstLegs.forEach(first => {
+            const firstArr = first.DestinationStopTime.ArrivalTime;
+
+            secondLegs.forEach(second => {
+              const secondDep = second.OriginStopTime.DepartureTime;
+              if (getTimeDiff(firstArr, secondDep) < 5) return;
+              if (first.DestinationStopTime.ArrivalTime > second.OriginStopTime.DepartureTime) return;
+              const totalTime = getTimeDiff(first.OriginStopTime.DepartureTime, second.DestinationStopTime.ArrivalTime);
+
+              validRoutes.push({
+                first,
+                second,
+                totalTime
+              });
+            });
+          });
+        }
+        else{
+          routeSelection = 3;
+          let route = {};
+          // ✅ 處理 2 ~ 3 段轉乘
+          firstLegs.forEach(first => {
+            const firstArr = first.DestinationStopTime.ArrivalTime;
+
+            secondLegs.forEach(second => {
+              const secondDep = second.OriginStopTime.DepartureTime;
+              if (first.DestinationStopTime.ArrivalTime > second.OriginStopTime.DepartureTime) return;
+              if (getTimeDiff(firstArr, secondDep) < 5) return;
+
+              const secondArr = second.DestinationStopTime.ArrivalTime;
+
+              thirdLegs.forEach(Third => {
+                const thirdDep = Third.OriginStopTime.DepartureTime;
+                if (second.DestinationStopTime.ArrivalTime > Third.OriginStopTime.DepartureTime) return;
+                if (getTimeDiff(secondArr, thirdDep) < 5) return;
+
+                route = {
+                  first,
+                  second,
+                  Third,
+                  totalTime: getTimeDiff(
+                    first.OriginStopTime.DepartureTime,
+                    Third.DestinationStopTime.ArrivalTime
+                  )
+                };
+                validRoutes.push(route);
+              });
+            });
+          });
+        }
+        console.log(validRoutes);
+        for (const route of validRoutes) {
+          let depTime;
+          // 依據 route 的型態選取對應的出發時間作為 key
+          if (route.first && route.second && route.Third) {
+            // 1->2->3 三段轉乘，出發時間取第一段起點
+            depTime = route.first.OriginStopTime.DepartureTime;
+          } else if (route.first && route.second) {
+            // 1->2 段轉乘，出發時間取第一段起點
+            depTime = route.first.OriginStopTime.DepartureTime;
+          } else if (route.second && route.Third) {
+            // 2->3 段轉乘，出發時間取第二段起點
+            depTime = route.second.OriginStopTime.DepartureTime;
+          } else if (route.straight) {
+            // 直達，出發時間取直達起點
+            depTime = route.straight.OriginStopTime.DepartureTime;
+          } else if (route.first) {
+            // 單段（只有第一段）
+            depTime = route.first.OriginStopTime.DepartureTime;
+          } else {
+            // 找不到合適的出發時間就跳過
+            continue;
+          }
+
+          if (!depTime) continue;
+
+          const key = String(depTime);
+
+          if (
+            !shortestPerDeparture.has(key) ||
+            route.totalTime < shortestPerDeparture.get(key).totalTime
+          ) {
+            shortestPerDeparture.set(key, route);
+          }
+        }
+
+      }
+      // 更新狀態
+      setTransferResults(Array.from(shortestPerDeparture.values()));
+      console.log("轉乘查詢結果：", Array.from(shortestPerDeparture.values()));
+
+    } catch (err) {
+      console.error("轉乘查詢失敗：", err);
+      setTransferError("轉乘查詢失敗，請稍後再試");
+      setTransferResults([]);
+    } finally {
+
+      setTransferLoading(false);
+    }
+  };
+  
   const fetchTripInfoTrainNo = async (trainNo) => {
     setLoading(true);
     setError(null);
@@ -256,6 +511,110 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  function TransferTable({ transferResults }) {
+    const [expandedRows, setExpandedRows] = useState([]);
+
+    const toggleRow = (idx) => {
+      setExpandedRows((prev) =>
+        prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+      );
+    };
+
+    return (
+      transferResults.length > 0 && (
+        <div className="mt-6">
+          <h3 className="mb-4 text-lg font-bold text-white">轉乘方案</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full table-auto border-collapse border border-gray-400 text-sm">
+              <thead>
+                <tr className="bg-[#4a423f] text-white">
+                  <th className="px-4 py-2 border border-gray-300 text-center">起點時間</th>
+                  <th className="px-4 py-2 border border-gray-300 text-center">終點時間</th>
+                  <th className="px-4 py-2 border border-gray-300 text-center">轉乘時間</th>
+                  {/*<th className="px-4 py-2 border border-gray-300 text-center">總票價</th>*/}
+                </tr>
+              </thead>
+              <tbody>
+                {transferResults.map((route, idx) => {
+                  const isExpanded = expandedRows.includes(idx);
+                  const rowColor = idx % 2 === 0 ? 'bg-[#3e3b37]' : 'bg-[#3a3631]';
+
+                  return (
+                    <React.Fragment key={idx}>
+                      {/* 摘要列 */}
+                      <tr
+                        onClick={() => toggleRow(idx)}
+                        className={`cursor-pointer ${rowColor} hover:bg-[#5a524c] transition duration-200`}
+                      >
+                        <td className="px-4 py-2 border border-gray-300 text-white text-center">
+                          {route.straight?.OriginStopTime?.DepartureTime}
+                          {!route.straight && route.first?.OriginStopTime?.DepartureTime}
+                          {!route.first && route.second?.OriginStopTime?.DepartureTime}
+                        </td>
+                        <td className="px-4 py-2 border border-gray-300 text-white text-center">
+                          {route.straight?.DestinationStopTime?.ArrivalTime}
+                          {(!route.straight || !route.first)&& route.Third?.DestinationStopTime?.ArrivalTime}
+                          {!route.Third && route.second?.DestinationStopTime?.ArrivalTime}
+                        </td>
+                        <td className="px-4 py-2 border border-gray-300 text-white text-center">
+                          {route.totalTime} 分鐘
+                        </td>
+                        {/*<td className="px-4 py-2 border border-gray-300 text-white text-center">
+                          {route.Fare}元
+                        </td>*/}
+                      </tr>
+
+                      {/* 詳細列 */}
+                      {isExpanded && (
+                        <tr className="bg-[#2f2c2a] text-white transition duration-200">
+                          <td colSpan={3} className="px-6 py-4 border-t border-gray-600">
+                            <div className="space-y-4 text-left">
+                              {route.straight && (
+                                <div>
+                                  <strong>第一班車：</strong><br />
+                                  {route.straight.DailyTrainInfo?.TrainNo} - {route.straight.DailyTrainInfo?.TrainTypeName?.Zh_tw}<br />
+                                  {route.straight.OriginStopTime?.DepartureTime} ({route.straight.OriginStopTime?.StationName?.Zh_tw}) →
+                                  {route.straight.DestinationStopTime?.ArrivalTime} ({route.straight.DestinationStopTime?.StationName?.Zh_tw})
+                                </div>
+                              )}
+                              {!route.straight && route.first && (
+                                <div>
+                                  <strong>第一班車：</strong><br />
+                                  {route.first.DailyTrainInfo?.TrainNo} - {route.first.DailyTrainInfo?.TrainTypeName?.Zh_tw}<br />
+                                  {route.first.OriginStopTime?.DepartureTime} ({route.first.OriginStopTime?.StationName?.Zh_tw}) →
+                                  {route.first.DestinationStopTime?.ArrivalTime} ({route.first.DestinationStopTime?.StationName?.Zh_tw})
+                                </div>
+                              )}
+                              {route.second && (
+                                <div>
+                                  <strong>{route.first ? '第二班車：' : '第一班車：'}</strong><br />
+                                  {route.second?.DailyTrainInfo?.TrainNo}-{route.second?.DailyTrainInfo?.TrainTypeName?.Zh_tw}<br />
+                                  {route.second?.OriginStopTime?.DepartureTime} ({route.second?.OriginStopTime?.StationName?.Zh_tw}) → {route.second?.DestinationStopTime?.ArrivalTime} ({route.second?.DestinationStopTime?.StationName?.Zh_tw})
+                                </div>
+                              )}
+                              {route.Third && (
+                                <div>
+                                  <strong>{route.first ? '第三班車：' : '第二班車：'}</strong><br />
+                                  {route.Third?.DailyTrainInfo?.TrainNo}-{route.Third?.DailyTrainInfo?.TrainTypeName?.Zh_tw}<br />
+                                  {route.Third?.OriginStopTime?.DepartureTime} ({route.Third?.OriginStopTime?.StationName?.Zh_tw}) → {route.Third?.DestinationStopTime?.ArrivalTime} ({route.Third?.DestinationStopTime?.StationName?.Zh_tw})
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )
+    );
+  }
+
 
   // 監聽 fetch，依 queryMode 呼叫不同函數
   useEffect(() => {
@@ -315,6 +674,14 @@ export default function Home() {
                 onClick={() => setQueryMode('trainNo')}
               >
                 車次查詢
+              </button>
+              <button
+                className={`px-4 py-2 rounded ${
+                  queryMode === 'transfer' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-900'
+                }`}
+                onClick={() => setQueryMode('transfer')}
+              >
+                轉乘查詢
               </button>
             </div>
 
@@ -525,6 +892,127 @@ export default function Home() {
                   </table>
                 )}
               </div>
+            </section>
+          )}
+
+          {queryMode === 'transfer' && (
+            <section className="mb-6 border p-4 rounded shadow">
+              <h2 className="text-xl text-[#c4a35a] font-bold mb-4">轉乘查詢</h2>
+              <div className="max-w-4xl mx-auto mb-8 space-y-6">
+
+                {/* 日期選擇 */}
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  min={today}
+                  className="flex-1 border rounded px-3 py-2 text-gray-700"
+                />
+
+                {/* 起點城市與車站 */}
+                <div className="flex space-x-6">
+                  <div className="w-1/2">
+                    <label className="block mb-1 text-white font-medium">起點城市：</label>
+                    <select
+                      value={transferStartCity}
+                      onChange={(e) => {
+                        setTransferStartCity(e.target.value);
+                        setTransferStartStation('');
+                        const filtered = stations.filter(s => s.LocationCity === e.target.value);
+                        setFilteredStationsStart(filtered);
+                      }}
+                      className="w-full border rounded px-3 py-2 text-gray-700"
+                    >
+                      <option value="">請選擇</option>
+                      {cities.map((city, idx) => (
+                        <option key={idx} value={city}>{city}</option>
+                      ))}
+                    </select>
+
+                    {transferStartCity && (
+                      <div>
+                        <label className="block mt-4 mb-1 text-white font-medium">起點車站：</label>
+                        <select
+                          value={transferStartStation}
+                          onChange={(e) => setTransferStartStation(e.target.value)}
+                          className="w-full border rounded px-3 py-2 text-gray-700"
+                        >
+                          <option value="">請選擇</option>
+                          {filteredStationsStart.map((station) => (
+                            <option key={station.StationID} value={station.StationID}>
+                              {station.StationName.Zh_tw}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 終點城市與車站 */}
+                  <div className="w-1/2">
+                    <label className="block mb-1 text-white font-medium">終點城市：</label>
+                    <select
+                      value={transferEndCity}
+                      onChange={(e) => {
+                        setTransferEndCity(e.target.value);
+                        setTransferEndStation('');
+                        const filtered = stations.filter(s => s.LocationCity === e.target.value);
+                        setFilteredStationsEnd(filtered);
+                      }}
+                      className="w-full border rounded px-3 py-2 text-gray-700"
+                    >
+                      <option value="">請選擇</option>
+                      {cities.map((city, idx) => (
+                        <option key={idx} value={city}>{city}</option>
+                      ))}
+                    </select>
+
+                    {transferEndCity && (
+                      <div>
+                        <label className="block mt-4 mb-1 text-white font-medium">終點車站：</label>
+                        <select
+                          value={transferEndStation}
+                          onChange={(e) => setTransferEndStation(e.target.value)}
+                          className="w-full border rounded px-3 py-2 text-gray-700"
+                        >
+                          <option value="">請選擇</option>
+                          {filteredStationsEnd.map((station) => (
+                            <option key={station.StationID} value={station.StationID}>
+                              {station.StationName.Zh_tw}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {transferLoading && (
+                  <div className="text-white text-center mb-4">
+                    搜尋轉乘路線中，請稍候...
+                  </div>
+                )}
+
+                {transferError && (
+                  <div className="text-red-400 text-center mb-4">
+                    {transferError}
+                  </div>
+                )}
+
+                {/* 查詢按鈕 */}
+                <div className="flex justify-center">
+                  <button
+                    onClick={findTransferRoutes}
+                    disabled={!transferStartStation || !transferEndStation || !selectedDate || transferLoading}
+                    className="px-6 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
+                  >
+                    搜尋轉乘路線
+                  </button>
+                </div>
+
+                {/* 轉乘結果表格 */}
+                <TransferTable transferResults={transferResults} />
+                </div>
             </section>
           )}
         </div>
